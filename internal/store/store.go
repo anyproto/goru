@@ -18,8 +18,10 @@ type Store struct {
 }
 
 type storeData struct {
+	hosts     map[string]bool             // all registered hosts
 	snapshots map[string]*model.Snapshot  // keyed by host
 	changes   map[string]*model.ChangeSet // latest changes per host
+	errors    map[string]error            // latest error per host (nil = no error)
 }
 
 // Update represents a store update event
@@ -27,17 +29,54 @@ type Update struct {
 	Host      string
 	Snapshot  *model.Snapshot
 	ChangeSet *model.ChangeSet
+	Error     error
 }
 
 // New creates a new store
 func New() *Store {
 	s := &Store{}
 	data := &storeData{
+		hosts:     make(map[string]bool),
 		snapshots: make(map[string]*model.Snapshot),
 		changes:   make(map[string]*model.ChangeSet),
+		errors:    make(map[string]error),
 	}
 	s.current.Store(data)
 	return s
+}
+
+// RegisterHosts registers a list of hosts that will be monitored
+// This ensures the store knows about all configured hosts even before they connect
+func (s *Store) RegisterHosts(hosts []string) {
+	oldData := s.current.Load()
+	newData := &storeData{
+		hosts:     make(map[string]bool, len(hosts)),
+		snapshots: make(map[string]*model.Snapshot, len(oldData.snapshots)),
+		changes:   make(map[string]*model.ChangeSet, len(oldData.changes)),
+		errors:    make(map[string]error, len(oldData.errors)),
+	}
+	
+	// Copy existing data
+	for k, v := range oldData.hosts {
+		newData.hosts[k] = v
+	}
+	for k, v := range oldData.snapshots {
+		newData.snapshots[k] = v
+	}
+	for k, v := range oldData.changes {
+		newData.changes[k] = v
+	}
+	for k, v := range oldData.errors {
+		newData.errors[k] = v
+	}
+	
+	// Register all hosts
+	for _, host := range hosts {
+		newData.hosts[host] = true
+		// Don't set initial state - let the absence of snapshot/error indicate fetching
+	}
+	
+	s.current.Store(newData)
 }
 
 // UpdateSnapshot updates the snapshot for a host
@@ -45,16 +84,24 @@ func (s *Store) UpdateSnapshot(snapshot *model.Snapshot, changeSet *model.Change
 	// Create new data (copy-on-write)
 	oldData := s.current.Load()
 	newData := &storeData{
+		hosts:     make(map[string]bool),
 		snapshots: make(map[string]*model.Snapshot),
 		changes:   make(map[string]*model.ChangeSet),
+		errors:    make(map[string]error),
 	}
 
 	// Copy existing data
+	for k, v := range oldData.hosts {
+		newData.hosts[k] = v
+	}
 	for k, v := range oldData.snapshots {
 		newData.snapshots[k] = v
 	}
 	for k, v := range oldData.changes {
 		newData.changes[k] = v
+	}
+	for k, v := range oldData.errors {
+		newData.errors[k] = v
 	}
 
 	// Update with new data
@@ -62,6 +109,8 @@ func (s *Store) UpdateSnapshot(snapshot *model.Snapshot, changeSet *model.Change
 	if changeSet != nil && !changeSet.IsEmpty() {
 		newData.changes[snapshot.Host] = changeSet
 	}
+	// Clear any previous error for this host since we got a snapshot
+	newData.errors[snapshot.Host] = nil
 
 	// Atomic swap
 	s.current.Store(newData)
@@ -96,6 +145,88 @@ func (s *Store) GetChangeSet(host string) *model.ChangeSet {
 	data := s.current.Load()
 	return data.changes[host]
 }
+
+// UpdateError updates the error status for a host
+func (s *Store) UpdateError(host string, err error) {
+	// Create new data (copy-on-write)
+	oldData := s.current.Load()
+	newData := &storeData{
+		hosts:     make(map[string]bool),
+		snapshots: make(map[string]*model.Snapshot),
+		changes:   make(map[string]*model.ChangeSet),
+		errors:    make(map[string]error),
+	}
+
+	// Copy existing data
+	for k, v := range oldData.hosts {
+		newData.hosts[k] = v
+	}
+	for k, v := range oldData.snapshots {
+		newData.snapshots[k] = v
+	}
+	for k, v := range oldData.changes {
+		newData.changes[k] = v
+	}
+	for k, v := range oldData.errors {
+		newData.errors[k] = v
+	}
+
+	// Update error
+	newData.errors[host] = err
+
+	// Atomic swap
+	s.current.Store(newData)
+
+	// Notify subscribers
+	s.notifySubscribers(Update{
+		Host:  host,
+		Error: err,
+	})
+}
+
+// GetErrors returns all current errors
+func (s *Store) GetErrors() map[string]error {
+	data := s.current.Load()
+	// Return a copy to prevent external modification
+	result := make(map[string]error)
+	for k, v := range data.errors {
+		// Only include hosts with actual errors (not nil)
+		if v != nil {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+// GetAllHosts returns all registered hosts
+func (s *Store) GetAllHosts() []string {
+	data := s.current.Load()
+	hosts := make([]string, 0, len(data.hosts))
+	for host := range data.hosts {
+		hosts = append(hosts, host)
+	}
+	return hosts
+}
+
+// GetFetchingHosts returns hosts that are currently being fetched
+// A host is considered fetching if it has no snapshot and no error
+func (s *Store) GetFetchingHosts() map[string]bool {
+	data := s.current.Load()
+	result := make(map[string]bool)
+	
+	for host := range data.hosts {
+		_, hasSnapshot := data.snapshots[host]
+		err, hasError := data.errors[host]
+		
+		// Host is fetching if it has no snapshot and no error (or nil error)
+		if !hasSnapshot && (!hasError || err == nil) {
+			result[host] = true
+		}
+	}
+	
+	return result
+}
+
 
 // Subscribe registers a channel to receive updates
 func (s *Store) Subscribe(ch chan<- Update) {

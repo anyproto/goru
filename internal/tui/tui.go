@@ -83,7 +83,7 @@ func New(s *store.Store) Model {
 	ti.CharLimit = 50
 	ti.Width = 50
 
-	return Model{
+	m := Model{
 		store:       s,
 		table:       t,
 		filterInput: ti,
@@ -91,6 +91,14 @@ func New(s *store.Store) Model {
 		stats:       s.GetStats(),
 		sortBy:      "count", // default sort by count
 	}
+
+	// Select first host if available
+	hosts := m.getSortedHosts()
+	if len(hosts) > 0 {
+		m.selectedHost = hosts[0]
+	}
+
+	return m
 }
 
 // Init initializes the model
@@ -421,7 +429,17 @@ func (m Model) renderHeader() string {
 	}
 
 	displayedGroups := len(m.displayedGroups)
-	stats := fmt.Sprintf("Host: %s | Groups: %d/%d | Goroutines: %d | Updated: %s%s",
+	totalHosts := len(m.getSortedHosts())
+	hostIndex := 0
+	for i, h := range m.getSortedHosts() {
+		if h == m.selectedHost {
+			hostIndex = i + 1
+			break
+		}
+	}
+	stats := fmt.Sprintf("Host %d/%d: %s | Groups: %d/%d | Goroutines: %d | Updated: %s%s",
+		hostIndex,
+		totalHosts,
 		m.selectedHost,
 		displayedGroups,
 		m.stats.TotalGroups,
@@ -432,6 +450,46 @@ func (m Model) renderHeader() string {
 
 	statsStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("241"))
+
+	// Check for errors and fetching status
+	errors := m.store.GetErrors()
+	fetching := m.store.GetFetchingHosts()
+	
+	var statusDisplay string
+	
+	// Check if current host is fetching
+	if _, isFetching := fetching[m.selectedHost]; isFetching {
+		fetchingStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("226")).
+			Bold(true)
+		statusDisplay = fetchingStyle.Render("⟳ Fetching...")
+	} else if err, hasError := errors[m.selectedHost]; hasError {
+		// Show error for current host
+		errorStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("196")).
+			Bold(true)
+		statusDisplay = errorStyle.Render(fmt.Sprintf("⚠ Error: %v", err))
+	} else if len(errors) > 0 || len(fetching) > 0 {
+		// Show summary of other hosts with issues
+		var parts []string
+		if len(errors) > 0 {
+			errorStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("196"))
+			parts = append(parts, errorStyle.Render(fmt.Sprintf("%d error(s)", len(errors))))
+		}
+		if len(fetching) > 0 {
+			fetchingStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("226"))
+			parts = append(parts, fetchingStyle.Render(fmt.Sprintf("%d fetching", len(fetching))))
+		}
+		if len(parts) > 0 {
+			statusDisplay = strings.Join(parts, " | ")
+		}
+	}
+	
+	if statusDisplay != "" {
+		return lipgloss.JoinVertical(lipgloss.Left, title, statsStyle.Render(stats), statusDisplay)
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, statsStyle.Render(stats))
 }
@@ -473,15 +531,15 @@ func (m *Model) buildTableRows() []table.Row {
 	if m.selectedHost != "" {
 		snapshot = m.store.GetSnapshot(m.selectedHost)
 	} else {
-		// Get first host
-		all := m.store.GetAllSnapshots()
-		for host, s := range all {
-			m.selectedHost = host
-			snapshot = s
-			break
+		// Select first available host
+		hosts := m.getSortedHosts()
+		if len(hosts) > 0 {
+			m.selectedHost = hosts[0]
+			snapshot = m.store.GetSnapshot(m.selectedHost)
 		}
 	}
 
+	// If no snapshot yet (host might be fetching or have error), return empty
 	if snapshot == nil {
 		return rows
 	}
@@ -601,11 +659,8 @@ func (m *Model) selectPrevHost() {
 }
 
 func (m Model) getSortedHosts() []string {
-	all := m.store.GetAllSnapshots()
-	hosts := make([]string, 0, len(all))
-	for host := range all {
-		hosts = append(hosts, host)
-	}
+	// Get all registered hosts from the store
+	hosts := m.store.GetAllHosts()
 	sort.Strings(hosts)
 	return hosts
 }

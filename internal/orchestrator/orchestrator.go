@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/anyproto/goru/internal/collector"
+	"github.com/anyproto/goru/internal/collector/http"
 	"github.com/anyproto/goru/internal/diff"
 	"github.com/anyproto/goru/internal/store"
 	"github.com/anyproto/goru/pkg/model"
@@ -63,6 +65,9 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 
 	// Start processing snapshots
 	go o.processSnapshots(ctx, channels)
+
+	// Start error monitoring for HTTP sources
+	go o.monitorErrors(ctx)
 
 	// Wait for completion
 	go func() {
@@ -152,5 +157,36 @@ func (o *Orchestrator) GetStats() Stats {
 		ActiveSources:  len(o.sources),
 		HostsMonitored: hostsMonitored,
 		StoreStats:     o.store.GetStats(),
+	}
+}
+
+func (o *Orchestrator) monitorErrors(ctx context.Context) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Check each source for errors
+			for _, source := range o.sources {
+				if httpSource, ok := source.(*http.HTTPSource); ok {
+					currentErrors := httpSource.GetErrors()
+					sourceTargets := httpSource.GetTargets()
+					
+					// Update error status only for hosts managed by this source
+					for _, host := range sourceTargets {
+						if err, hasError := currentErrors[host]; hasError {
+							// Host has an error
+							o.store.UpdateError(host, err)
+						} else {
+							// Host is working (no error in the errors map)
+							o.store.UpdateError(host, nil)
+						}
+					}
+				}
+			}
+		}
 	}
 }

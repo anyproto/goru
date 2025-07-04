@@ -20,18 +20,23 @@ type HTTPSource struct {
 	client   *http.Client
 	parser   *parser.Parser
 	workers  int
+	
+	// Track errors per host
+	errorsMu sync.RWMutex
+	errors   map[string]error
 }
 
 // NewHTTPSource creates a new HTTP source
-func New(targets []string, interval time.Duration, workers int) *HTTPSource {
+func New(targets []string, interval time.Duration, timeout time.Duration, workers int) *HTTPSource {
 	return &HTTPSource{
 		targets:  targets,
 		interval: interval,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: timeout,
 		},
 		parser:  parser.New(),
 		workers: workers,
+		errors:  make(map[string]error),
 	}
 }
 
@@ -71,13 +76,25 @@ func (h *HTTPSource) collectAll(ctx context.Context, snapshots chan<- *model.Sna
 		go func() {
 			defer wg.Done()
 			for target := range workCh {
-				if snapshot, err := h.collectOne(ctx, target); err == nil {
+				snapshot, err := h.collectOne(ctx, target)
+				
+				// Update error status
+				h.errorsMu.Lock()
+				if err != nil {
+					h.errors[target] = err
+				} else {
+					delete(h.errors, target)
+				}
+				h.errorsMu.Unlock()
+				
+				if err == nil {
 					select {
 					case snapshots <- snapshot:
 					case <-ctx.Done():
 						return
 					}
 				}
+				// Note: errors are tracked and we continue processing other targets
 			}
 		}()
 	}
@@ -129,5 +146,24 @@ func (h *HTTPSource) collectOne(ctx context.Context, target string) (*model.Snap
 
 	return snapshot, nil
 }
+
+// GetErrors returns the current errors for each host
+func (h *HTTPSource) GetErrors() map[string]error {
+	h.errorsMu.RLock()
+	defer h.errorsMu.RUnlock()
+	
+	// Return a copy
+	result := make(map[string]error)
+	for k, v := range h.errors {
+		result[k] = v
+	}
+	return result
+}
+
+// GetTargets returns all configured targets for this source
+func (h *HTTPSource) GetTargets() []string {
+	return h.targets
+}
+
 
 var _ collector.Source = (*HTTPSource)(nil)

@@ -77,11 +77,15 @@ func run() error {
 
 	// HTTP sources
 	if len(cfg.Targets) > 0 {
-		httpSource := http.New(cfg.Targets, cfg.Interval, 5) // 5 workers
+		// Register all HTTP targets with the store so they appear in UI even if unreachable
+		s.RegisterHosts(cfg.Targets)
+		
+		httpSource := http.New(cfg.Targets, cfg.Interval, cfg.Timeout, 5) // 5 workers
 		sources = append(sources, httpSource)
 		logger.Info("Added HTTP source",
 			telemetry.Int("targets", len(cfg.Targets)),
 			telemetry.Duration("interval", cfg.Interval),
+			telemetry.Duration("timeout", cfg.Timeout),
 		)
 	}
 

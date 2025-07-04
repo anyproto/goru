@@ -24,6 +24,7 @@ type Config struct {
 	Files    []string      `yaml:"files" envconfig:"goru_FILES"`
 	Follow   bool          `yaml:"follow" envconfig:"goru_FOLLOW"`
 	Interval time.Duration `yaml:"interval" envconfig:"goru_INTERVAL"`
+	Timeout  time.Duration `yaml:"timeout" envconfig:"goru_TIMEOUT"`
 	Mode     Mode          `yaml:"mode" envconfig:"goru_MODE"`
 	PProf    string        `yaml:"pprof" envconfig:"goru_PPROF"`
 
@@ -46,6 +47,7 @@ type Config struct {
 func New() *Config {
 	return &Config{
 		Interval: 2 * time.Second,
+		Timeout:  30 * time.Second,
 		Mode:     ModeTUI,
 		Web: struct {
 			Host    string `yaml:"host" envconfig:"goru_WEB_HOST"`
@@ -72,6 +74,7 @@ func (c *Config) Load() error {
 	pflag.StringSliceVar(&c.Files, "files", c.Files, "Paths or globs of goroutine-dump files (.txt or .gz)")
 	pflag.BoolVar(&c.Follow, "follow", c.Follow, "Re-read growing files (tail-like)")
 	pflag.DurationVar(&c.Interval, "interval", c.Interval, "Poll interval for HTTP targets or rescan interval for files")
+	pflag.DurationVar(&c.Timeout, "timeout", c.Timeout, "HTTP timeout for fetching goroutine dumps")
 	pflag.StringVar((*string)(&c.Mode), "mode", string(c.Mode), "Run mode: tui, web, or both")
 	pflag.StringVar(&c.PProf, "pprof", c.PProf, "Host:port to expose pprof endpoints for self-inspection")
 
