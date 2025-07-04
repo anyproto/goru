@@ -80,7 +80,7 @@ func run() error {
 		// Register all HTTP targets with the store so they appear in UI even if unreachable
 		s.RegisterHosts(cfg.Targets)
 		
-		httpSource := http.New(cfg.Targets, cfg.Interval, cfg.Timeout, 5) // 5 workers
+		httpSource := http.New(cfg.Targets, cfg.Timeout, 5) // 5 workers
 		sources = append(sources, httpSource)
 		logger.Info("Added HTTP source",
 			telemetry.Int("targets", len(cfg.Targets)),
@@ -104,7 +104,7 @@ func run() error {
 	}
 
 	// Create and start orchestrator
-	orch := orchestrator.New(s, sources...)
+	orch := orchestrator.New(s, cfg.Interval, sources...)
 
 	// Start orchestrator in background
 	orchErrCh := make(chan error, 1)
@@ -120,7 +120,7 @@ func run() error {
 	switch cfg.Mode {
 	case config.ModeTUI, config.ModeBoth:
 		// Create TUI model
-		model := tui.New(s)
+		model := tui.New(s, orch, cfg.Interval)
 
 		// Create tea program
 		p := tea.NewProgram(model, tea.WithAltScreen())

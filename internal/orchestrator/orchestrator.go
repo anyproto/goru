@@ -22,15 +22,23 @@ type Orchestrator struct {
 	// Track previous snapshots for diff computation
 	mu            sync.RWMutex
 	lastSnapshots map[string]*model.Snapshot
+	
+	// Centralized refresh control
+	refreshCh chan struct{}
+	interval  time.Duration
+	paused    bool
+	pauseMu   sync.RWMutex
 }
 
 // New creates a new orchestrator
-func New(store *store.Store, sources ...collector.Source) *Orchestrator {
+func New(store *store.Store, interval time.Duration, sources ...collector.Source) *Orchestrator {
 	return &Orchestrator{
 		sources:       sources,
 		store:         store,
 		diff:          diff.New(),
 		lastSnapshots: make(map[string]*model.Snapshot),
+		refreshCh:     make(chan struct{}, 1), // Buffered to avoid blocking
+		interval:      interval,
 	}
 }
 
@@ -68,6 +76,9 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 
 	// Start error monitoring for HTTP sources
 	go o.monitorErrors(ctx)
+	
+	// Start centralized refresh controller
+	go o.refreshController(ctx)
 
 	// Wait for completion
 	go func() {
@@ -157,6 +168,80 @@ func (o *Orchestrator) GetStats() Stats {
 		ActiveSources:  len(o.sources),
 		HostsMonitored: hostsMonitored,
 		StoreStats:     o.store.GetStats(),
+	}
+}
+
+// TriggerRefresh manually triggers a refresh for all sources
+func (o *Orchestrator) TriggerRefresh() {
+	select {
+	case o.refreshCh <- struct{}{}:
+		// Refresh triggered
+	default:
+		// Channel is full, refresh already pending
+	}
+}
+
+// SetPaused sets the pause state
+func (o *Orchestrator) SetPaused(paused bool) {
+	o.pauseMu.Lock()
+	defer o.pauseMu.Unlock()
+	o.paused = paused
+}
+
+// IsPaused returns the current pause state
+func (o *Orchestrator) IsPaused() bool {
+	o.pauseMu.RLock()
+	defer o.pauseMu.RUnlock()
+	return o.paused
+}
+
+// refreshController manages the centralized refresh logic
+func (o *Orchestrator) refreshController(ctx context.Context) {
+	// Trigger initial collection only if not paused
+	if !o.IsPaused() {
+		o.triggerAllSources()
+	}
+	
+	// If interval is 0, only collect on manual refresh
+	if o.interval == 0 {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-o.refreshCh:
+				o.triggerAllSources()
+			}
+		}
+	}
+	
+	// Normal periodic collection mode
+	ticker := time.NewTicker(o.interval)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			// Only collect if not paused
+			if !o.IsPaused() {
+				o.triggerAllSources()
+			}
+			// Note: when paused, we simply ignore the ticker event
+		case <-o.refreshCh:
+			// Allow manual refresh even when paused (user explicitly requested it)
+			o.triggerAllSources()
+		}
+	}
+}
+
+// triggerAllSources triggers collection for all sources
+func (o *Orchestrator) triggerAllSources() {
+	for _, source := range o.sources {
+		if httpSource, ok := source.(*http.HTTPSource); ok {
+			httpSource.TriggerRefresh()
+		}
+		// Add support for other source types as needed
 	}
 }
 

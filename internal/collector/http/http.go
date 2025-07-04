@@ -16,10 +16,12 @@ import (
 // HTTPSource collects goroutine dumps from HTTP endpoints
 type HTTPSource struct {
 	targets  []string
-	interval time.Duration
 	client   *http.Client
 	parser   *parser.Parser
 	workers  int
+	
+	// Manual refresh support
+	refreshCh chan struct{}
 	
 	// Track errors per host
 	errorsMu sync.RWMutex
@@ -27,10 +29,10 @@ type HTTPSource struct {
 }
 
 // NewHTTPSource creates a new HTTP source
-func New(targets []string, interval time.Duration, timeout time.Duration, workers int) *HTTPSource {
+func New(targets []string, timeout time.Duration, workers int) *HTTPSource {
 	return &HTTPSource{
-		targets:  targets,
-		interval: interval,
+		targets:   targets,
+		refreshCh: make(chan struct{}, 1), // Buffered to avoid blocking
 		client: &http.Client{
 			Timeout: timeout,
 		},
@@ -49,18 +51,12 @@ func (h *HTTPSource) Name() string {
 func (h *HTTPSource) Collect(ctx context.Context, snapshots chan<- *model.Snapshot) error {
 	defer close(snapshots)
 
-	// Create a ticker for periodic collection
-	ticker := time.NewTicker(h.interval)
-	defer ticker.Stop()
-
-	// Collect immediately on start
-	h.collectAll(ctx, snapshots)
-
+	// Wait for refresh triggers from orchestrator
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
+		case <-h.refreshCh:
 			h.collectAll(ctx, snapshots)
 		}
 	}
@@ -164,6 +160,17 @@ func (h *HTTPSource) GetErrors() map[string]error {
 func (h *HTTPSource) GetTargets() []string {
 	return h.targets
 }
+
+// TriggerRefresh manually triggers a refresh of all targets
+func (h *HTTPSource) TriggerRefresh() {
+	select {
+	case h.refreshCh <- struct{}{}:
+		// Refresh triggered
+	default:
+		// Channel is full, refresh already pending
+	}
+}
+
 
 
 var _ collector.Source = (*HTTPSource)(nil)

@@ -17,9 +17,18 @@ import (
 	"github.com/anyproto/goru/pkg/model"
 )
 
+// Refresher interface for manual refresh capability
+type Refresher interface {
+	TriggerRefresh()
+	SetPaused(bool)
+	IsPaused() bool
+}
+
 // Model represents the TUI model
 type Model struct {
 	store        *store.Store
+	refresher    Refresher
+	interval     time.Duration
 	table        table.Model
 	filterInput  textinput.Model
 	updates      <-chan store.Update
@@ -27,7 +36,6 @@ type Model struct {
 	filter       string
 	filterMode   bool
 	showDetails  bool
-	paused       bool
 	width        int
 	height       int
 	lastUpdate   time.Time
@@ -41,11 +49,11 @@ type Model struct {
 	displayedGroups []*model.Group
 
 	// Sorting
-	sortBy string // "count", "state", "function"
+	sortBy string // "count", "state", "function", "wait"
 }
 
 // New creates a new TUI model
-func New(s *store.Store) Model {
+func New(s *store.Store, refresher Refresher, interval time.Duration) Model {
 	// Subscribe to store updates
 	updates := make(chan store.Update, 10)
 	s.Subscribe(updates)
@@ -85,6 +93,8 @@ func New(s *store.Store) Model {
 
 	m := Model{
 		store:       s,
+		refresher:   refresher,
+		interval:    interval,
 		table:       t,
 		filterInput: ti,
 		updates:     updates,
@@ -204,10 +214,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.refreshData())
 
 		case key.Matches(msg, keys.Pause):
-			m.paused = !m.paused
-			if !m.paused {
-				// Resume updates
-				cmds = append(cmds, m.waitForUpdate())
+			if m.refresher != nil {
+				paused := !m.refresher.IsPaused()
+				m.refresher.SetPaused(paused)
+				if !paused {
+					// Resume updates
+					cmds = append(cmds, m.waitForUpdate())
+				}
 			}
 
 		case key.Matches(msg, keys.NextHost):
@@ -219,13 +232,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.refreshData())
 
 		case key.Matches(msg, keys.Sort):
-			// Cycle through sort modes: count -> state -> function -> count
+			// Cycle through sort modes: count -> state -> function -> wait -> count
 			switch m.sortBy {
 			case "count":
 				m.sortBy = "state"
 			case "state":
 				m.sortBy = "function"
 			case "function":
+				m.sortBy = "wait"
+			case "wait":
 				m.sortBy = "count"
 			default:
 				m.sortBy = "count"
@@ -233,15 +248,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Update table columns with sort indicator
 			m.updateTableColumns()
 			// No need to call refreshData - updateTableColumns already rebuilds the table
+
+		case key.Matches(msg, keys.Refresh):
+			// Trigger manual refresh
+			if m.refresher != nil {
+				m.refresher.TriggerRefresh()
+			}
 		}
 
 	case store.Update:
-		if !m.paused && !m.showDetails {
+		if !m.showDetails {
 			m.lastUpdate = time.Now()
 			m.stats = m.store.GetStats()
 			cmds = append(cmds, m.refreshData())
 		}
-		// Always continue waiting for updates (we just won't apply them if paused or in details)
+		// Always continue waiting for updates
 		cmds = append(cmds, m.waitForUpdate())
 
 	case refreshMsg:
@@ -336,14 +357,6 @@ func (m Model) renderDetailsView() string {
 	b.WriteString(labelStyle.Render("Count:") + infoStyle.Render(fmt.Sprintf("%d", g.Count)) + "\n")
 	b.WriteString(labelStyle.Render("Group ID:") + infoStyle.Render(string(g.ID)) + "\n")
 
-	// Show created by if present
-	if g.CreatedBy != nil {
-		b.WriteString(labelStyle.Render("Created By:") + infoStyle.Render(g.CreatedBy.Func) + "\n")
-		if g.CreatedBy.File != "" {
-			b.WriteString(labelStyle.Render("") + fileStyle.Render(fmt.Sprintf("%s:%d", g.CreatedBy.File, g.CreatedBy.Line)) + "\n")
-		}
-	}
-
 	b.WriteString("\n")
 
 	// Stack trace
@@ -362,6 +375,18 @@ func (m Model) renderDetailsView() string {
 		if frame.File != "" {
 			b.WriteString("\n    ")
 			b.WriteString(fileStyle.Render(fmt.Sprintf("%s:%d", frame.File, frame.Line)))
+		}
+	}
+
+	// Show created by after stack trace if present
+	if g.CreatedBy != nil {
+		b.WriteString("\n\n")
+		b.WriteString(stackTitle.Render("Created By:"))
+		b.WriteString("\n")
+		b.WriteString(frameStyle.Render(g.CreatedBy.Func))
+		if g.CreatedBy.File != "" {
+			b.WriteString("\n")
+			b.WriteString(fileStyle.Render(fmt.Sprintf("%s:%d", g.CreatedBy.File, g.CreatedBy.Line)))
 		}
 	}
 
@@ -418,14 +443,22 @@ func (m Model) renderHeader() string {
 		Foreground(lipgloss.Color("229")).
 		Render("Goroutine Explorer")
 
-	pauseIndicator := ""
-	if m.paused {
+	statusIndicator := ""
+	paused := m.refresher != nil && m.refresher.IsPaused()
+	if paused {
 		pauseStyle := lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("196")).
 			Background(lipgloss.Color("235")).
 			Padding(0, 1)
-		pauseIndicator = " " + pauseStyle.Render("PAUSED")
+		statusIndicator = " " + pauseStyle.Render("PAUSED")
+	} else if m.interval == 0 {
+		manualStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("226")).
+			Background(lipgloss.Color("235")).
+			Padding(0, 1)
+		statusIndicator = " " + manualStyle.Render("MANUAL")
 	}
 
 	displayedGroups := len(m.displayedGroups)
@@ -445,7 +478,7 @@ func (m Model) renderHeader() string {
 		m.stats.TotalGroups,
 		m.stats.TotalGoroutines,
 		m.lastUpdate.Format("15:04:05"),
-		pauseIndicator,
+		statusIndicator,
 	)
 
 	statsStyle := lipgloss.NewStyle().
@@ -503,6 +536,7 @@ func (m Model) renderFooter() string {
 		"f: Filter",
 		"c: Clear",
 		"s: Sort",
+		"r: Refresh",
 		"p: Pause",
 		"q: Quit",
 	}
@@ -558,7 +592,11 @@ func (m *Model) buildTableRows() []table.Row {
 				return groups[i].State < groups[j].State
 			}
 			// Secondary sort by count
-			return groups[i].Count > groups[j].Count
+			if groups[i].Count != groups[j].Count {
+				return groups[i].Count > groups[j].Count
+			}
+			// Tertiary sort by group ID for deterministic ordering
+			return groups[i].ID < groups[j].ID
 		})
 	case "function":
 		sort.Slice(groups, func(i, j int) bool {
@@ -566,11 +604,34 @@ func (m *Model) buildTableRows() []table.Row {
 				return groups[i].Trace[0].Func < groups[j].Trace[0].Func
 			}
 			// Secondary sort by count
-			return groups[i].Count > groups[j].Count
+			if groups[i].Count != groups[j].Count {
+				return groups[i].Count > groups[j].Count
+			}
+			// Tertiary sort by group ID for deterministic ordering
+			return groups[i].ID < groups[j].ID
+		})
+	case "wait":
+		sort.Slice(groups, func(i, j int) bool {
+			// Get max wait time for each group
+			maxI := getMaxWaitMinutes(groups[i].WaitDurations)
+			maxJ := getMaxWaitMinutes(groups[j].WaitDurations)
+			if maxI != maxJ {
+				return maxI > maxJ // Longer waits first
+			}
+			// Secondary sort by count
+			if groups[i].Count != groups[j].Count {
+				return groups[i].Count > groups[j].Count
+			}
+			// Tertiary sort by group ID for deterministic ordering
+			return groups[i].ID < groups[j].ID
 		})
 	default: // "count"
 		sort.Slice(groups, func(i, j int) bool {
-			return groups[i].Count > groups[j].Count
+			if groups[i].Count != groups[j].Count {
+				return groups[i].Count > groups[j].Count
+			}
+			// Secondary sort by group ID for deterministic ordering
+			return groups[i].ID < groups[j].ID
 		})
 	}
 
@@ -683,6 +744,8 @@ func (m *Model) updateTableColumns() {
 		columns[1].Title = "Function ↓"
 	case "count":
 		columns[3].Title = "Count ↓"
+	case "wait":
+		columns[4].Title = "Wait ↓"
 	}
 
 	// Get current cursor position
@@ -740,14 +803,10 @@ func formatWaitRange(durations []string) string {
 		uniqueMap[d]++
 	}
 
-	// If only one unique value, return it with count if > 1
+	// If only one unique value, just return it without count
 	if len(uniqueMap) == 1 {
 		dur := durations[0]
-		abbreviated := abbreviateWaitTime(dur)
-		if len(durations) > 1 {
-			return fmt.Sprintf("%s (%d)", abbreviated, len(durations))
-		}
-		return abbreviated
+		return abbreviateWaitTime(dur)
 	}
 
 	// Multiple unique values - find min and max
@@ -790,6 +849,22 @@ func formatMinutes(minutes int64) string {
 	return fmt.Sprintf("%d mins", minutes)
 }
 
+// getMaxWaitMinutes returns the maximum wait time in minutes from a list of wait durations
+func getMaxWaitMinutes(durations []string) int64 {
+	if len(durations) == 0 {
+		return 0
+	}
+	
+	maxMinutes := int64(0)
+	for _, dur := range durations {
+		minutes := parseMinutes(dur)
+		if minutes > maxMinutes {
+			maxMinutes = minutes
+		}
+	}
+	return maxMinutes
+}
+
 // Messages
 type refreshMsg struct{}
 
@@ -817,6 +892,7 @@ type keyMap struct {
 	Clear    key.Binding
 	Pause    key.Binding
 	Sort     key.Binding
+	Refresh  key.Binding
 	Quit     key.Binding
 }
 
@@ -856,6 +932,10 @@ var keys = keyMap{
 	Sort: key.NewBinding(
 		key.WithKeys("s"),
 		key.WithHelp("s", "sort"),
+	),
+	Refresh: key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "refresh"),
 	),
 	Quit: key.NewBinding(
 		key.WithKeys("q", "ctrl+c"),

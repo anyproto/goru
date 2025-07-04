@@ -59,7 +59,7 @@ goru --files="dumps/*.txt,dumps/*.gz" --mode=tui
 
 goru supports configuration via:
 1. Command-line flags (highest priority)
-2. Environment variables (prefix: `goru_`)
+2. Environment variables (prefix: `GORU_`)
 3. YAML config file
 
 ## Development Status

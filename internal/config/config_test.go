@@ -127,8 +127,8 @@ func TestConfigPrecedence(t *testing.T) {
 	pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
 
 	// Set environment variable
-	os.Setenv("goru_LOG_LEVEL", "debug")
-	defer os.Unsetenv("goru_LOG_LEVEL")
+	os.Setenv("GORU_LOG_LEVEL", "debug")
+	defer os.Unsetenv("GORU_LOG_LEVEL")
 
 	// Create config with defaults
 	c := New()

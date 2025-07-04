@@ -150,6 +150,22 @@ func (s *Store) GetChangeSet(host string) *model.ChangeSet {
 func (s *Store) UpdateError(host string, err error) {
 	// Create new data (copy-on-write)
 	oldData := s.current.Load()
+	
+	// Check if error actually changed
+	currentErr, exists := oldData.errors[host]
+	if exists && currentErr != nil && err != nil && currentErr.Error() == err.Error() {
+		// Same error, no change needed
+		return
+	}
+	if !exists && err == nil {
+		// No error before, no error now, no change needed
+		return
+	}
+	if exists && currentErr == nil && err == nil {
+		// No error before, no error now, no change needed
+		return
+	}
+	
 	newData := &storeData{
 		hosts:     make(map[string]bool),
 		snapshots: make(map[string]*model.Snapshot),
@@ -177,7 +193,7 @@ func (s *Store) UpdateError(host string, err error) {
 	// Atomic swap
 	s.current.Store(newData)
 
-	// Notify subscribers
+	// Notify subscribers only when there's an actual change
 	s.notifySubscribers(Update{
 		Host:  host,
 		Error: err,

@@ -20,25 +20,25 @@ const (
 )
 
 type Config struct {
-	Targets  []string      `yaml:"targets" envconfig:"goru_TARGETS"`
-	Files    []string      `yaml:"files" envconfig:"goru_FILES"`
-	Follow   bool          `yaml:"follow" envconfig:"goru_FOLLOW"`
-	Interval time.Duration `yaml:"interval" envconfig:"goru_INTERVAL"`
-	Timeout  time.Duration `yaml:"timeout" envconfig:"goru_TIMEOUT"`
-	Mode     Mode          `yaml:"mode" envconfig:"goru_MODE"`
-	PProf    string        `yaml:"pprof" envconfig:"goru_PPROF"`
+	Targets  []string      `yaml:"targets" envconfig:"GORU_TARGETS"`
+	Files    []string      `yaml:"files" envconfig:"GORU_FILES"`
+	Follow   bool          `yaml:"follow" envconfig:"GORU_FOLLOW"`
+	Interval time.Duration `yaml:"interval" envconfig:"GORU_INTERVAL"`
+	Timeout  time.Duration `yaml:"timeout" envconfig:"GORU_TIMEOUT"`
+	Mode     Mode          `yaml:"mode" envconfig:"GORU_MODE"`
+	PProf    string        `yaml:"pprof" envconfig:"GORU_PPROF"`
 
 	Web struct {
-		Host    string `yaml:"host" envconfig:"goru_WEB_HOST"`
-		Port    int    `yaml:"port" envconfig:"goru_WEB_PORT"`
-		NoOpen  bool   `yaml:"no_open" envconfig:"goru_WEB_NO_OPEN"`
-		TLSCert string `yaml:"tls_cert" envconfig:"goru_WEB_TLS_CERT"`
-		TLSKey  string `yaml:"tls_key" envconfig:"goru_WEB_TLS_KEY"`
+		Host    string `yaml:"host" envconfig:"GORU_WEB_HOST"`
+		Port    int    `yaml:"port" envconfig:"GORU_WEB_PORT"`
+		NoOpen  bool   `yaml:"no_open" envconfig:"GORU_WEB_NO_OPEN"`
+		TLSCert string `yaml:"tls_cert" envconfig:"GORU_WEB_TLS_CERT"`
+		TLSKey  string `yaml:"tls_key" envconfig:"GORU_WEB_TLS_KEY"`
 	} `yaml:"web"`
 
 	Log struct {
-		Level string `yaml:"level" envconfig:"goru_LOG_LEVEL"`
-		JSON  bool   `yaml:"json" envconfig:"goru_LOG_JSON"`
+		Level string `yaml:"level" envconfig:"GORU_LOG_LEVEL"`
+		JSON  bool   `yaml:"json" envconfig:"GORU_LOG_JSON"`
 	} `yaml:"log"`
 
 	ConfigFile string `yaml:"-"`
@@ -46,22 +46,22 @@ type Config struct {
 
 func New() *Config {
 	return &Config{
-		Interval: 2 * time.Second,
+		Interval: 10 * time.Second,
 		Timeout:  30 * time.Second,
 		Mode:     ModeTUI,
 		Web: struct {
-			Host    string `yaml:"host" envconfig:"goru_WEB_HOST"`
-			Port    int    `yaml:"port" envconfig:"goru_WEB_PORT"`
-			NoOpen  bool   `yaml:"no_open" envconfig:"goru_WEB_NO_OPEN"`
-			TLSCert string `yaml:"tls_cert" envconfig:"goru_WEB_TLS_CERT"`
-			TLSKey  string `yaml:"tls_key" envconfig:"goru_WEB_TLS_KEY"`
+			Host    string `yaml:"host" envconfig:"GORU_WEB_HOST"`
+			Port    int    `yaml:"port" envconfig:"GORU_WEB_PORT"`
+			NoOpen  bool   `yaml:"no_open" envconfig:"GORU_WEB_NO_OPEN"`
+			TLSCert string `yaml:"tls_cert" envconfig:"GORU_WEB_TLS_CERT"`
+			TLSKey  string `yaml:"tls_key" envconfig:"GORU_WEB_TLS_KEY"`
 		}{
 			Host: "localhost",
 			Port: 8080,
 		},
 		Log: struct {
-			Level string `yaml:"level" envconfig:"goru_LOG_LEVEL"`
-			JSON  bool   `yaml:"json" envconfig:"goru_LOG_JSON"`
+			Level string `yaml:"level" envconfig:"GORU_LOG_LEVEL"`
+			JSON  bool   `yaml:"json" envconfig:"GORU_LOG_JSON"`
 		}{
 			Level: "info",
 		},
@@ -73,7 +73,7 @@ func (c *Config) Load() error {
 	pflag.StringSliceVar(&c.Targets, "targets", c.Targets, "Comma-separated host:port list to poll via HTTP")
 	pflag.StringSliceVar(&c.Files, "files", c.Files, "Paths or globs of goroutine-dump files (.txt or .gz)")
 	pflag.BoolVar(&c.Follow, "follow", c.Follow, "Re-read growing files (tail-like)")
-	pflag.DurationVar(&c.Interval, "interval", c.Interval, "Poll interval for HTTP targets or rescan interval for files")
+	pflag.DurationVar(&c.Interval, "interval", c.Interval, "Poll interval for HTTP targets or rescan interval for files (0 to disable auto-refresh)")
 	pflag.DurationVar(&c.Timeout, "timeout", c.Timeout, "HTTP timeout for fetching goroutine dumps")
 	pflag.StringVar((*string)(&c.Mode), "mode", string(c.Mode), "Run mode: tui, web, or both")
 	pflag.StringVar(&c.PProf, "pprof", c.PProf, "Host:port to expose pprof endpoints for self-inspection")
