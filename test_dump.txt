@@ -1,0 +1,45 @@
+goroutine 1 [running]:
+runtime/debug.Stack()
+	/usr/local/go/src/runtime/debug/stack.go:24 +0x5e
+github.com/someorg/someproject/internal/very/long/package/path/server.(*Server).handleVeryLongMethodNameThatShowsTheProblem(0xc0000a6000, {0x1a5b4e0, 0xc000520000}, 0xc000286700)
+	/Users/developer/projects/someorg/someproject/internal/very/long/package/path/server/handlers.go:142 +0x3a
+net/http.HandlerFunc.ServeHTTP(0x19b0f70, {0x1a5b4e0, 0xc000520000}, 0xc000286700)
+	/usr/local/go/src/net/http/server.go:2136 +0x29
+net/http.(*ServeMux).ServeHTTP(0x252a860, {0x1a5b4e0, 0xc000520000}, 0xc000286700)
+	/usr/local/go/src/net/http/server.go:2514 +0x142
+
+goroutine 2 [select, 10 minutes]:
+database/sql.(*DB).connectionOpener(0xc0001ba340, {0x1a5f6f0, 0xc0001e4050})
+	/usr/local/go/src/database/sql/sql.go:1218 +0x87
+created by database/sql.OpenDB
+	/usr/local/go/src/database/sql/sql.go:794 +0x165
+
+goroutine 3 [select, 5 minutes]:
+database/sql.(*DB).connectionOpener(0xc0001ba340, {0x1a5f6f0, 0xc0001e4050})
+	/usr/local/go/src/database/sql/sql.go:1218 +0x87
+created by database/sql.OpenDB
+	/usr/local/go/src/database/sql/sql.go:794 +0x165
+
+goroutine 10 [IO wait]:
+net.(*netFD).Read(0xc0001c6000, 0xc000400000, 0x1000, 0x1000)
+	/usr/local/go/src/net/fd_posix.go:55 +0x25
+net.(*conn).Read(0xc000010030, 0xc000400000, 0x1000, 0x1000)
+	/usr/local/go/src/net/net.go:179 +0x45
+net/http.(*connReader).Read(0xc000280060, 0xc000400000, 0x1000, 0x1000)
+	/usr/local/go/src/net/http/server.go:791 +0x16d
+
+goroutine 11 [IO wait]:
+net.(*netFD).Read(0xc0001c6080, 0xc000401000, 0x1000, 0x1000)
+	/usr/local/go/src/net/fd_posix.go:55 +0x25
+net.(*conn).Read(0xc000010038, 0xc000401000, 0x1000, 0x1000)
+	/usr/local/go/src/net/net.go:179 +0x45
+net/http.(*connReader).Read(0xc000280090, 0xc000401000, 0x1000, 0x1000)
+	/usr/local/go/src/net/http/server.go:791 +0x16d
+created by net/http.(*Server).Serve
+	/usr/local/go/src/net/http/server.go:3089 +0x5ed
+
+goroutine 20 [chan receive]:
+github.com/someorg/someproject/internal/worker.(*Pool).worker(0xc0002a4000)
+	/Users/developer/projects/someorg/someproject/internal/worker/pool.go:87 +0x65
+created by github.com/someorg/someproject/internal/worker.(*Pool).Start in goroutine 1
+	/Users/developer/projects/someorg/someproject/internal/worker/pool.go:42 +0x89

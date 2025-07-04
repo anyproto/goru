@@ -1,0 +1,21 @@
+goroutine 1 [running]:
+main.main()
+	/app/main.go:10 +0x20
+
+goroutine 2 [chan receive, 5 minutes]:
+main.worker()
+	/app/worker.go:25 +0x100
+created by main.main
+	/app/main.go:15 +0x30
+
+goroutine 3 [chan receive, 5 minutes]:
+main.worker()
+	/app/worker.go:25 +0x100
+created by main.main
+	/app/main.go:15 +0x30
+
+goroutine 4 [IO wait]:
+net.(*netFD).Read(0xc0000a0000, 0xc0000b0000, 0x1000, 0x1000, 0x0, 0x0, 0x0)
+	/usr/local/go/src/net/fd_posix.go:55 +0x100
+net.(*conn).Read(0xc0000a8000, 0xc0000b0000, 0x1000, 0x1000, 0x0, 0x0, 0x0)
+	/usr/local/go/src/net/net.go:183 +0x50
