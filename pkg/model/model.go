@@ -34,16 +34,6 @@ type GroupID string
 
 type GoroutineState string
 
-const (
-	StateRunning   GoroutineState = "running"
-	StateRunnable  GoroutineState = "runnable"
-	StateBlocked   GoroutineState = "blocked"
-	StateWaiting   GoroutineState = "waiting"
-	StateSyscall   GoroutineState = "syscall"
-	StateDead      GoroutineState = "dead"
-	StateCopystack GoroutineState = "copystack"
-	StatePreempted GoroutineState = "preempted"
-)
 
 type Group struct {
 	ID            GroupID        `json:"id"`

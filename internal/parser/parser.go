@@ -144,22 +144,9 @@ func (p *Parser) parseState(stateStr string) model.GoroutineState {
 	// Clean up the state string
 	stateStr = strings.TrimSpace(stateStr)
 	stateStr = strings.Split(stateStr, ",")[0]
-
-	switch {
-	case stateStr == "running":
-		return model.StateRunning
-	case stateStr == "runnable":
-		return model.StateRunnable
-	case stateStr == "syscall":
-		return model.StateSyscall
-	case stateStr == "chan receive", stateStr == "chan send", stateStr == "select":
-		return model.StateBlocked
-	case stateStr == "IO wait", stateStr == "semacquire", stateStr == "sync.Cond.Wait":
-		return model.StateWaiting
-	default:
-		// Many states like "sleep", "finalizer wait" etc. map to waiting
-		return model.StateWaiting
-	}
+	
+	// Return the state as-is
+	return model.GoroutineState(stateStr)
 }
 
 func (p *Parser) extractFunctionName(line string) string {

@@ -60,8 +60,8 @@ func New(s *store.Store, refresher Refresher, interval time.Duration) Model {
 
 	// Create table
 	columns := []table.Column{
-		{Title: "State", Width: 10},
-		{Title: "Function", Width: 55},
+		{Title: "State", Width: 13},
+		{Title: "Function", Width: 52},
 		{Title: "Created By", Width: 75},
 		{Title: "Count ↓", Width: 7}, // Default sort by count
 		{Title: "Wait", Width: 10},
@@ -729,8 +729,8 @@ func (m Model) getSortedHosts() []string {
 func (m *Model) updateTableColumns() {
 	// Create columns with sort indicator
 	columns := []table.Column{
-		{Title: "State", Width: 10},
-		{Title: "Function", Width: 55},
+		{Title: "State", Width: 13},
+		{Title: "Function", Width: 52},
 		{Title: "Created By", Width: 75},
 		{Title: "Count", Width: 7},
 		{Title: "Wait", Width: 10},
